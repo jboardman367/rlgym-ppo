@@ -76,7 +76,10 @@ class Learner(object):
             random_seed: int = 123,
             n_checkpoints_to_keep: int = 5,
             shm_buffer_size: int = 8192,
-            device: str = "auto"):
+            device: str = "auto",
+            
+            reward_scale_config: Tuple[Tuple[float, float, float], ...] = None,
+            reward_scale_rate=0.005):
 
         assert (
                 env_create_function is not None
@@ -103,6 +106,11 @@ class Learner(object):
         self.standardize_returns = standardize_returns
         self.save_every_ts = save_every_ts
         self.ts_since_last_save = 0
+
+        # This is (min, target, max)
+        self.reward_scale_config = reward_scale_config
+        self.reward_scales = [0] * len(reward_scale_config) if reward_scale_config else None
+        self.reward_scale_rate = reward_scale_rate
 
         if device in {"auto", "gpu"} and torch.cuda.is_available():
             self.device = "cuda:0"
@@ -131,7 +139,8 @@ class Learner(object):
             None, min_inference_size=min_inference_size,
             seed=random_seed,
             standardize_obs=standardize_obs,
-            steps_per_obs_stats_increment=steps_per_obs_stats_increment
+            steps_per_obs_stats_increment=steps_per_obs_stats_increment,
+            rew_array_size=len(self.reward_scales) or 1
         )
         obs_space_size, act_space_size, action_space_type = self.agent.init_processes(
             n_processes=n_proc,
@@ -270,6 +279,7 @@ class Learner(object):
             report["Timestep Consumption Time"] = epoch_time - collection_time
             report["Collected Steps per Second"] = steps_collected / collection_time
             report["Overall Steps per Second"] = steps_collected / epoch_time
+            report["Reward Scales"] = self.reward_scales
 
             self.ts_since_last_save += steps_collected
             if self.agent.average_reward is not None:
@@ -328,6 +338,32 @@ class Learner(object):
         # Unpack timestep data.
         states, actions, log_probs, rewards, next_states, dones, truncated = experience
         value_net = self.ppo_learner.value_net
+
+        # Handle reward scaling
+        rewards = np.array(rewards)
+        column_avgs = abs(rewards).sum(axis=0) / rewards.shape[0]
+        # I don't trust the agent manager's average rewards, I'm replacing them with sane values
+        self.agent.average_reward = rewards.sum(axis=0) / rewards.shape[0]
+
+        # Make a copy so we can clamp
+        clamped_scales = [0] * len(column_avgs)
+
+        for i in range(len(column_avgs)):
+            # Skip column if reward was not triggered 
+            # (yes it could technically sum to 0 but same divide 0 problem if we try to use it)
+            if (column_avgs[i] == 0):
+                continue
+            min_coeff = self.reward_scale_config[i][0] / column_avgs[i]
+            ideal_coeff = self.reward_scale_config[i][1] / column_avgs[i]
+            max_coeff = self.reward_scale_config[i][2] / column_avgs[i]
+            # Update by a portion of the distance.
+            self.reward_scales[i] = self.reward_scales[i] + (ideal_coeff - self.reward_scales[i]) * self.reward_scale_rate
+
+            # Clamp the scale
+            clamped_scales[i] = min(max(min_coeff, self.reward_scales[i]), max_coeff)
+
+        rewards = (rewards * clamped_scales).sum(axis=1)
+        rewards = list(rewards)
 
         # Construct input to the value function estimator that includes the final state
         # (which an action was not taken in)
@@ -406,7 +442,7 @@ class Learner(object):
         book_keeping_vars = {
             "cumulative_timesteps": self.agent.cumulative_timesteps,
             "cumulative_model_updates": self.ppo_learner.cumulative_model_updates,
-            "policy_average_reward": self.agent.average_reward,
+            "policy_average_reward": [float(r) for r in self.agent.average_reward],
             "epoch": self.epoch,
             "ts_since_last_save": self.ts_since_last_save,
             "reward_running_stats": self.return_stats.to_json(),
@@ -423,6 +459,10 @@ class Learner(object):
             book_keeping_vars["wandb_entity"] = self.wandb_run.entity
             book_keeping_vars["wandb_group"] = self.wandb_run.group
             book_keeping_vars["wandb_config"] = self.wandb_run.config.as_dict()
+
+        if self.reward_scale_config is not None:
+            book_keeping_vars["reward_scale_config"] = self.reward_scale_config
+            book_keeping_vars["reward_scales"] = self.reward_scales
 
         book_keeping_table_path = os.path.join(folder_path, "BOOK_KEEPING_VARS.json")
         with open(book_keeping_table_path, "w") as f:
@@ -462,6 +502,9 @@ class Learner(object):
                 self.agent.obs_stats.from_json(book_keeping_vars["obs_running_stats"])
             if self.standardize_returns and "reward_running_stats" in book_keeping_vars.keys():
                 self.return_stats.from_json(book_keeping_vars["reward_running_stats"])
+
+            if self.reward_scale_config and "reward_scales" in book_keeping_vars.keys():
+                self.reward_scales = book_keeping_vars["reward_scales"]
 
             self.epoch = book_keeping_vars["epoch"]
 

@@ -113,7 +113,10 @@ def batched_agent_process(proc_id, endpoint, shm_buffer, shm_offset, shm_size, s
                     obs, rew, done, truncated, info = step_data
 
                 if n_agents == 1:
-                    rew = [float(rew)]
+                    rew = [rew]
+
+                # Flatten rew
+                rew = [item for row in rew for item in row]
 
                 if done or truncated:
                     obs = np.asarray(env.reset(), dtype=np.float32)

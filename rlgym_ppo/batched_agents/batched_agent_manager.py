@@ -42,6 +42,7 @@ class BatchedAgentManager(object):
         seed=123,
         standardize_obs=True,
         steps_per_obs_stats_increment=5,
+        rew_array_size=1
     ):
         self.policy = policy
         self.seed = seed
@@ -65,6 +66,8 @@ class BatchedAgentManager(object):
         self.trajectory_map = []
         self.prev_time = 0
         self.completed_trajectories = []
+
+        self.rew_array_size = rew_array_size
 
         self.n_procs = 0
         import struct
@@ -286,12 +289,13 @@ class BatchedAgentManager(object):
             ]
 
         rew_start = state_shape_start + n_elements_in_state_shape
-        rew_end = rew_start + prev_n_agents
+        rew_end = rew_start + prev_n_agents * self.rew_array_size
 
         shm_shapes = self.shm_shapes[proc_id]
         if shm_shapes is None or shm_shapes != (metrics_shape, state_shape, prev_n_agents):
             self.shm_shapes[proc_id] = (metrics_shape, state_shape, prev_n_agents)
-            rews = np.reshape(shm_view[rew_start : rew_end], (rew_end - rew_start,))
+            # This line extracts the rewards
+            rews = np.reshape(shm_view[rew_start : rew_end], (-1, self.rew_array_size))
             metrics = np.reshape(shm_view[rew_end : rew_end + n_metrics], metrics_shape)
             obs = np.reshape(shm_view[rew_end + n_metrics : rew_end + n_metrics + prod(state_shape)], state_shape)
             self.shm_cache[proc_id] = (rews, metrics, obs)

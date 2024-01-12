@@ -1,6 +1,8 @@
+from typing import List
 import numpy as np
-from rlgym_sim.utils.gamestates import GameState
+from rlgym_sim.utils.gamestates import GameState, PlayerData
 from rlgym_ppo.util import MetricsLogger
+from rlgym_sim.utils.reward_functions import RewardFunction
 
 
 class ExampleLogger(MetricsLogger):
@@ -20,6 +22,21 @@ class ExampleLogger(MetricsLogger):
                   "z_vel":avg_linvel[2],
                   "Cumulative Timesteps":cumulative_timesteps}
         wandb_run.log(report)
+
+
+class ZipReward(RewardFunction):
+    def __init__(self, *rew_funcs: RewardFunction):
+        self.rew_funcs = rew_funcs
+
+    def reset(self, initial_state: GameState):
+        for func in self.rew_funcs:
+            func.reset(initial_state)
+
+    def get_reward(self, player: PlayerData, state: GameState, previous_action: np.ndarray) -> List[float]:
+        return list(map(lambda r: r.get_reward(player, state, previous_action), self.rew_funcs))
+    
+    def get_final_reward(self, player: PlayerData, state: GameState, previous_action: np.ndarray) -> List[float]:
+        return list(map(lambda r: r.get_final_reward(player, state, previous_action), self.rew_funcs))
 
 
 def build_rocketsim_env():
@@ -44,11 +61,9 @@ def build_rocketsim_env():
 
     rewards_to_combine = (VelocityPlayerToBallReward(),
                           VelocityBallToGoalReward(),
-                          EventReward(team_goal=1, concede=-1, demo=0.1))
-    reward_weights = (0.01, 0.1, 10.0)
+                          EventReward(team_goal=1, concede=-1))
 
-    reward_fn = CombinedReward(reward_functions=rewards_to_combine,
-                               reward_weights=reward_weights)
+    reward_fn = ZipReward(*rewards_to_combine)
 
     obs_builder = DefaultObs(
         pos_coef=np.asarray([1 / common_values.SIDE_WALL_X, 1 / common_values.BACK_NET_Y, 1 / common_values.CEILING_Z]),
@@ -71,7 +86,7 @@ if __name__ == "__main__":
     metrics_logger = ExampleLogger()
 
     # 32 processes
-    n_proc = 32
+    n_proc = 6
 
     # educated guess - could be slightly higher or lower
     min_inference_size = max(1, int(round(n_proc * 0.9)))
@@ -90,5 +105,6 @@ if __name__ == "__main__":
                       standardize_obs=False,
                       save_every_ts=100_000,
                       timestep_limit=1_000_000_000,
-                      log_to_wandb=True)
+                      log_to_wandb=False,
+                      reward_scale_config=((0.001, 0.01, 0.05), (0.01, 0.1, 0.5), (1, 10, 50)))
     learner.learn()

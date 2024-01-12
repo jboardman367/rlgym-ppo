@@ -25,6 +25,8 @@ def _form_printable_groups(report):
          "Policy Entropy": report["Policy Entropy"],
          "Value Function Loss": report["Value Function Loss"]},
 
+        {"Reward Scales": report["Reward Scales"]},
+
         {"Mean KL Divergence": report["Mean KL Divergence"],
          "SB3 Clip Fraction": report["SB3 Clip Fraction"],
          "Policy Update Magnitude": report["Policy Update Magnitude"],
