@@ -105,6 +105,10 @@ if __name__ == "__main__":
                       standardize_obs=False,
                       save_every_ts=100_000,
                       timestep_limit=1_000_000_000,
-                      log_to_wandb=False,
-                      reward_scale_config=((0.001, 0.01, 0.05), (0.01, 0.1, 0.5), (1, 10, 50)))
+                      log_to_wandb=True,
+                      reward_scale_config=(
+                          (0.001, 0.01, 0.05, "vpb"),
+                          (0.01, 0.1, 0.5, "vbg"),
+                          (1 / (25 * 15), 10 / (25 * 15), 50 / (25 * 15), "gc"),
+                        ))
     learner.learn()

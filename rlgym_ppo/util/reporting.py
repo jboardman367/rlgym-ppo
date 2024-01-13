@@ -21,11 +21,11 @@ def _form_printable_groups(report):
     """
 
     groups = [
-        {"Policy Reward": report["Policy Reward"],
+        {"Policy Reward": ''.join((f'\n  {k}: {v}' for k, v in report["Policy Reward"].items())),
          "Policy Entropy": report["Policy Entropy"],
          "Value Function Loss": report["Value Function Loss"]},
 
-        {"Reward Scales": report["Reward Scales"]},
+        {"Reward Scales": ''.join((f'\n  {k}: {v}' for k, v in report["Reward Scales"].items()))},
 
         {"Mean KL Divergence": report["Mean KL Divergence"],
          "SB3 Clip Fraction": report["SB3 Clip Fraction"],
@@ -48,7 +48,7 @@ def _form_printable_groups(report):
 
     return groups
 
-def report_metrics(loggable_metrics, debug_metrics, wandb_run=None):
+def report_metrics(loggable_metrics: dict, debug_metrics, wandb_run=None):
     """
     Function to report a dictionary of metrics to the console and wandb.
     :param loggable_metrics: Dictionary containing all the data to be logged.
@@ -58,7 +58,14 @@ def report_metrics(loggable_metrics, debug_metrics, wandb_run=None):
     """
 
     if wandb_run is not None:
-        wandb_run.log(loggable_metrics)
+        wandb_metrics = {}
+        for key, entry in loggable_metrics.items():
+            if type(entry) == dict:
+                for k, v in entry.items():
+                    wandb_metrics[f'{key}/{k}'] = v
+            else:
+                wandb_metrics[key] = entry
+        wandb_run.log(wandb_metrics)
 
     # Print debug data first.
     if debug_metrics is not None:

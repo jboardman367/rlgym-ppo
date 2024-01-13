@@ -78,7 +78,7 @@ class Learner(object):
             shm_buffer_size: int = 8192,
             device: str = "auto",
             
-            reward_scale_config: Tuple[Tuple[float, float, float], ...] = None,
+            reward_scale_config: Tuple[Tuple[float, float, float, str], ...] = None,
             reward_scale_rate=0.005):
 
         assert (
@@ -107,7 +107,7 @@ class Learner(object):
         self.save_every_ts = save_every_ts
         self.ts_since_last_save = 0
 
-        # This is (min, target, max)
+        # This is (min, target, max, name)
         self.reward_scale_config = reward_scale_config
         self.reward_scales = [0] * len(reward_scale_config) if reward_scale_config else None
         self.reward_scale_rate = reward_scale_rate
@@ -195,6 +195,7 @@ class Learner(object):
             "policy_lr": policy_lr,
             "critic_lr": critic_lr,
             "shm_buffer_size": shm_buffer_size,
+            "reward_scale_rate": reward_scale_rate,
         }
 
         self.wandb_run = wandb_run
@@ -279,11 +280,15 @@ class Learner(object):
             report["Timestep Consumption Time"] = epoch_time - collection_time
             report["Collected Steps per Second"] = steps_collected / collection_time
             report["Overall Steps per Second"] = steps_collected / epoch_time
-            report["Reward Scales"] = self.reward_scales
+            report["Reward Scales"] = {
+                    c[3]: r for c, r in zip(self.reward_scale_config, self.reward_scales)
+                }
 
             self.ts_since_last_save += steps_collected
             if self.agent.average_reward is not None:
-                report["Policy Reward"] = self.agent.average_reward
+                report["Policy Reward"] = {
+                    c[3]: r for c, r in zip(self.reward_scale_config, self.agent.average_reward)
+                }
             else:
                 report["Policy Reward"] = np.nan
 
@@ -489,7 +494,7 @@ class Learner(object):
         with open(os.path.join(folder_path, "BOOK_KEEPING_VARS.json"), "r") as f:
             book_keeping_vars = dict(json.load(f))
             self.agent.cumulative_timesteps = book_keeping_vars["cumulative_timesteps"]
-            self.agent.average_reward = book_keeping_vars["policy_average_reward"]
+            self.agent.average_reward = np.array(book_keeping_vars["policy_average_reward"])
             self.ppo_learner.cumulative_model_updates = book_keeping_vars[
                 "cumulative_model_updates"
             ]
