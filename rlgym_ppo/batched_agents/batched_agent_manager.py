@@ -343,7 +343,7 @@ class BatchedAgentManager(object):
             self.current_pids.append(proc_id)
 
         self.next_obs[proc_id] = next_observation
-        self.trajectory_map[proc_id].reward = [arg for arg in rews]
+        self.trajectory_map[proc_id].reward = np.array(rews)
         self.trajectory_map[proc_id].next_state = next_observation
         self.trajectory_map[proc_id].done = done
         self.trajectory_map[proc_id].truncated = truncated

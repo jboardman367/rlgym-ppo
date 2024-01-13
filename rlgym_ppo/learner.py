@@ -342,8 +342,6 @@ class Learner(object):
         # Handle reward scaling
         rewards = np.array(rewards)
         column_avgs = abs(rewards).sum(axis=0) / rewards.shape[0]
-        # I don't trust the agent manager's average rewards, I'm replacing them with sane values
-        self.agent.average_reward = rewards.sum(axis=0) / rewards.shape[0]
 
         # Make a copy so we can clamp
         clamped_scales = [0] * len(column_avgs)
