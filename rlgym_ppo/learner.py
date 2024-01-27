@@ -26,6 +26,13 @@ from rlgym_ppo.ppo import ExperienceBuffer, PPOLearner
 from rlgym_ppo.util import WelfordRunningStat, reporting, torch_functions, KBHit
 
 
+SCALE_TARGET = 0
+SCALE_RATE = 1
+SCALE_MIN = 2
+SCALE_MAX = 3
+SCALE_NAME = 4
+
+
 class Learner(object):
     def __init__(
             # fmt: off
@@ -78,7 +85,7 @@ class Learner(object):
             shm_buffer_size: int = 8192,
             device: str = "auto",
             
-            reward_scale_config: Tuple[Tuple[float, float, float, str], ...] = None,
+            reward_scale_config: Tuple[Tuple[float, float, float, float, str], ...] = None,
             reward_scale_rate=0.005):
 
         assert (
@@ -109,7 +116,7 @@ class Learner(object):
 
         # This is (min, target, max, name)
         self.reward_scale_config = reward_scale_config
-        self.reward_scales = [0] * len(reward_scale_config) if reward_scale_config else None
+        self.reward_scales = [s[SCALE_MIN] for s in reward_scale_config] if reward_scale_config else None
         self.reward_scale_rate = reward_scale_rate
 
         if device in {"auto", "gpu"} and torch.cuda.is_available():
@@ -281,13 +288,13 @@ class Learner(object):
             report["Collected Steps per Second"] = steps_collected / collection_time
             report["Overall Steps per Second"] = steps_collected / epoch_time
             report["Reward Scales"] = {
-                    c[3]: r for c, r in zip(self.reward_scale_config, self.reward_scales)
+                    c[SCALE_NAME]: r for c, r in zip(self.reward_scale_config, self.reward_scales)
                 }
 
             self.ts_since_last_save += steps_collected
             if self.agent.average_reward is not None:
                 report["Policy Reward"] = {
-                    c[3]: r for c, r in zip(self.reward_scale_config, self.agent.average_reward)
+                    c[SCALE_NAME]: r for c, r in zip(self.reward_scale_config, self.agent.average_reward)
                 }
             else:
                 report["Policy Reward"] = np.nan
@@ -348,24 +355,19 @@ class Learner(object):
         rewards = np.array(rewards)
         column_avgs = abs(rewards).sum(axis=0) / rewards.shape[0]
 
-        # Make a copy so we can clamp
-        clamped_scales = [0] * len(column_avgs)
-
-        for i in range(len(column_avgs)):
+        for i, avg in enumerate(column_avgs):
             # Skip column if reward was not triggered 
             # (yes it could technically sum to 0 but same divide 0 problem if we try to use it)
-            if (column_avgs[i] == 0):
+            if (avg == 0):
                 continue
-            min_coeff = self.reward_scale_config[i][0] / column_avgs[i]
-            ideal_coeff = self.reward_scale_config[i][1] / column_avgs[i]
-            max_coeff = self.reward_scale_config[i][2] / column_avgs[i]
+            ideal_coeff = self.reward_scale_config[i][SCALE_TARGET] * self.reward_scale_config[i][SCALE_RATE] / avg
             # Update by a portion of the distance.
             self.reward_scales[i] = self.reward_scales[i] + (ideal_coeff - self.reward_scales[i]) * self.reward_scale_rate
 
             # Clamp the scale
-            clamped_scales[i] = min(max(min_coeff, self.reward_scales[i]), max_coeff)
+            self.reward_scales[i] = min(max(self.reward_scale_config[i][SCALE_MIN], self.reward_scales[i]), self.reward_scale_config[i][SCALE_MAX])
 
-        rewards = (rewards * clamped_scales).sum(axis=1)
+        rewards = (rewards * self.reward_scales).sum(axis=1)
         rewards = list(rewards)
 
         # Construct input to the value function estimator that includes the final state
@@ -375,7 +377,7 @@ class Learner(object):
         val_inp[-1] = next_states[-1]
 
         # Predict the expected returns at each state.
-        val_preds = value_net(val_inp).cpu().flatten().tolist()
+        val_preds = value_net(val_inp).cpu().flatten().tolist()  # pylint: disable=not-callable
         torch.cuda.empty_cache()
 
         # Compute the desired reinforcement learning quantities.
