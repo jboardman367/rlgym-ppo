@@ -206,7 +206,7 @@ class Learner(object):
         }
 
         self.wandb_run = wandb_run
-        wandb_loaded = checkpoint_load_folder is not None and self.load(checkpoint_load_folder, load_wandb)
+        wandb_loaded = checkpoint_load_folder is not None and self.load(checkpoint_load_folder, load_wandb, policy_lr, critic_lr)
 
         if log_to_wandb and self.wandb_run is None and not wandb_loaded:
             project = "rlgym-ppo" if wandb_project_name is None else wandb_project_name
@@ -218,6 +218,19 @@ class Learner(object):
             )
             print("Created new wandb run!", self.wandb_run.id)
         print("Learner successfully initialized!")
+
+    def update_learning_rate(self, new_policy_lr=None, new_critic_lr=None):
+        if new_policy_lr is not None:
+            self.policy_lr = new_policy_lr
+            for param_group in self.ppo_learner.policy_optimizer.param_groups:
+                param_group['lr'] = new_policy_lr
+            print(f"New policy learning rate: {new_policy_lr}")
+
+        if new_critic_lr is not None:
+            self.critic_lr = new_critic_lr
+            for param_group in self.ppo_learner.value_optimizer.param_groups:
+                param_group['lr'] = new_critic_lr
+            print(f"New policy learning rate: {new_policy_lr}")
 
     def learn(self):
         """
@@ -475,7 +488,7 @@ class Learner(object):
 
         print(f"Checkpoint {cumulative_timesteps} saved!\n")
 
-    def load(self, folder_path, load_wandb):
+    def load(self, folder_path, load_wandb, new_policy_lr=None, new_critic_lr=None):
         """
         Function to load the learning algorithm from a checkpoint.
 
@@ -512,6 +525,10 @@ class Learner(object):
                 self.reward_scales = book_keeping_vars["reward_scales"]
 
             self.epoch = book_keeping_vars["epoch"]
+            
+            # Update learning rates if new values are provided
+            if new_policy_lr is not None or new_critic_lr is not None:
+                self.update_learning_rate(new_policy_lr, new_critic_lr)
 
             # check here for backwards compatibility
 
