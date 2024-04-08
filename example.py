@@ -91,6 +91,9 @@ if __name__ == "__main__":
     # educated guess - could be slightly higher or lower
     min_inference_size = max(1, int(round(n_proc * 0.9)))
 
+    # 25 second period @ 8 tick skip
+    goal_rate = 1 / 25 / 15
+
     learner = Learner(build_rocketsim_env,
                       n_proc=n_proc,
                       min_inference_size=min_inference_size,
@@ -106,9 +109,11 @@ if __name__ == "__main__":
                       save_every_ts=100_000,
                       timestep_limit=1_000_000_000,
                       log_to_wandb=True,
+                      # tuple (weight, target_rate, min_weight, max_weight, name).
+                      # Must be in the same order as the rewards in the ZipReward.
                       reward_scale_config=(
-                          (0.001, 0.01, 0.05, "vpb"),
-                          (0.01, 0.1, 0.5, "vbg"),
-                          (1 / (25 * 15), 10 / (25 * 15), 50 / (25 * 15), "gc"),
+                          (0.01, 1, 0.001, 0.05, "vpb"),
+                          (0.1, 1, 0.01, 0.5, "vbg"),
+                          (10, goal_rate, 1, 50, "gc"),
                         ))
     learner.learn()
